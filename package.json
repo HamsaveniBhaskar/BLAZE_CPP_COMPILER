@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "body-parser": "^1.19.0",
+    "path": "^0.12.7",
+    "child_process": "^1.0.2",
+    "cors": "^2.8.5"
+  }
+}
