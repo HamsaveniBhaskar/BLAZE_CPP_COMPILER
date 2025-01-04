@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y clang build-essential
 WORKDIR /app
 
 # Copy package.json and package-lock.json into the container
-COPY package.json 
+COPY package.json package-lock.json ./
 
 # Install dependencies using npm
 RUN npm install
