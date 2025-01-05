@@ -27,18 +27,18 @@ function cleanupFiles(...files) {
         // Write the code to the source file
         require("fs").writeFileSync(sourceFile, code);
 
-        // Compile the code using Clang with optimization flags for speed
-        const clangPath = "clang"; // Default Linux path for Clang
         const compileProcess = spawnSync(clangPath, [
-            sourceFile,
-            "-o", executable,
-            "-O2",   // Enable optimization level 2
-            "-std=c++17", // Use a stable standard
-            "-Wall", // Enable all warnings (optional but useful)
-        ], {
-            encoding: "utf-8",
-            timeout: 10000, // Timeout after 10 seconds
-        });
+    sourceFile,
+    "-o", executable,
+    "-O2",          // Enable optimization level 2
+    "-std=c++17",   // Use a stable standard
+    "-Wall",        // Enable all warnings
+    "-lstdc++",     // Link the GNU standard C++ library
+], {
+    encoding: "utf-8",
+    timeout: 10000, // Timeout after 10 seconds
+});
+
 
         if (compileProcess.error || compileProcess.stderr) {
             cleanupFiles(sourceFile, executable);
