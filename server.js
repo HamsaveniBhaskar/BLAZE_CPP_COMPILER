@@ -1,136 +1,91 @@
 const express = require("express");
 const bodyParser = require("body-parser");
-const fs = require("fs");
-const path = require("path");
-const { spawn } = require("child_process");
+const { Worker } = require("worker_threads");
 const cors = require("cors");
+const crypto = require("crypto");
+const http = require("http");
 
-const app = express(); // Initialize app first
+const app = express();
+const port = 3000;
 
 // Enable CORS
 app.use(cors());
 
-const port = 3000;
-
-// Middleware
+// Middleware for JSON parsing
 app.use(bodyParser.json());
 
-// Utility function to clean up files
-function cleanupFiles(...files) {
-    files.forEach((file) => {
-        if (fs.existsSync(file)) {
-            fs.unlinkSync(file);
-        }
-    });
-}
+// In-memory cache to store compiled results
+const cache = new Map();
+const CACHE_EXPIRATION_TIME = 60 * 60 * 1000; // 1 hour
+const MAX_CACHE_SIZE = 100;
 
-// POST endpoint to compile and execute C++ code
+// Helper to clean up the cache periodically
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, { timestamp }] of cache.entries()) {
+        if (now - timestamp > CACHE_EXPIRATION_TIME) {
+            cache.delete(key);
+        }
+    }
+}, 60000); // Run every minute
+
+// POST endpoint for code compilation and execution
 app.post("/", (req, res) => {
     const { code, input } = req.body;
 
-    // Check if code is provided
+    // Validate input
     if (!code) {
         return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
     }
 
-    // File paths for temporary source and executable files
-    const sourceFile = path.join(__dirname, "main.cpp");
-    const executable = path.join(__dirname, "main.exe");
+    // Generate a unique hash for the code
+    const codeHash = crypto.createHash("md5").update(code).digest("hex");
 
-    // Write the code to the source file
-    fs.writeFileSync(sourceFile, code);
-
-    try {
-        // Compile the code
-        const compileProcess = spawn("g++", [sourceFile, "-o", executable]);
-
-        let compileError = "";
-        compileProcess.stderr.on("data", (data) => {
-            compileError += data.toString();
-        });
-
-        compileProcess.on("close", (compileCode) => {
-            if (compileCode !== 0) {
-                // Parse error message for structured response
-                const errorLines = compileError.split("\n").map((line) =>
-                    line.replace(__dirname, "").replace(/\\/g, "/")
-                ); // Remove directory path and normalize slashes
-
-                const errorDetails = errorLines.find((line) =>
-                    line.includes("error:") && line.match(/(\d+):(\d+)/)
-                );
-
-                let line = 0,
-                    column = 0,
-                    message = "Compilation Error";
-                if (errorDetails) {
-                    const match = errorDetails.match(/:(\d+):(\d+): error: (.*)/);
-                    if (match) {
-                        line = parseInt(match[1]);
-                        column = parseInt(match[2]);
-                        message = match[3].trim();
-                    }
-                }
-
-                // Clean up files and send error response
-                cleanupFiles(sourceFile, executable);
-                return res.json({
-                    error: {
-                        fullError: `Compilation Error:\n${errorLines.join("\n")}`,
-                        line,
-                        column,
-                        message,
-                    },
-                });
-            }
-
-            // If compilation succeeds, execute the code
-            const runProcess = spawn(executable, [], { stdio: ["pipe", "pipe", "pipe"] });
-
-            let processOutput = "";
-            let executionError = "";
-
-            // Handle standard output
-            runProcess.stdout.on("data", (data) => {
-                processOutput += data.toString();
-            });
-
-            // Handle standard error
-            runProcess.stderr.on("data", (data) => {
-                executionError += data.toString();
-            });
-
-            // Handle user input if provided
-            if (input) {
-                runProcess.stdin.write(input + "\n");
-                runProcess.stdin.end();
-            }
-
-            runProcess.on("close", (runCode) => {
-                cleanupFiles(sourceFile, executable);
-
-                if (runCode !== 0) {
-                    // Runtime error occurred
-                    return res.json({
-                        error: {
-                            fullError: `Runtime Error:\n${executionError || "An error occurred during execution."}`,
-                        },
-                    });
-                }
-
-                // Return the program output
-                res.json({
-                    output: processOutput || "No output received!",
-                });
-            });
-        });
-    } catch (error) {
-        cleanupFiles(sourceFile, executable);
-        res.json({
-            error: { fullError: `Server error: ${error.message}` },
-        });
+    // Check if result is cached
+    if (cache.has(codeHash)) {
+        return res.json({ output: cache.get(codeHash).result });
     }
+
+    // Create a worker thread for compilation
+    const worker = new Worker("./compiler-worker.js", {
+        workerData: { code, input },
+    });
+
+    worker.on("message", (result) => {
+        // Cache the result if successful
+        if (result.output) {
+            if (cache.size >= MAX_CACHE_SIZE) {
+                // Remove the oldest cache entry
+                const oldestKey = [...cache.keys()][0];
+                cache.delete(oldestKey);
+            }
+            cache.set(codeHash, { result: result.output, timestamp: Date.now() });
+        }
+        res.json(result);
+    });
+
+    worker.on("error", (err) => {
+        res.status(500).json({ error: { fullError: `Worker error: ${err.message}` } });
+    });
+
+    worker.on("exit", (code) => {
+        if (code !== 0) {
+            console.error(`Worker stopped with exit code ${code}`);
+        }
+    });
 });
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+    res.json({ status: "Server is running" });
+});
+
+// Self-pinging mechanism to keep the server alive
+setInterval(() => {
+    http.get(`http://localhost:${port}/health`, (res) => {
+        console.log("Health check pinged!");
+    });
+}, 5 * 60 * 1000); // Ping every 5 minutes
 
 // Start the server
 app.listen(port, () => {
