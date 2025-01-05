@@ -1,13 +1,14 @@
 const { parentPort, workerData } = require("worker_threads");
-const { execFileSync, spawnSync } = require("child_process");
+const { spawnSync } = require("child_process");
 const path = require("path");
 const os = require("os");
+const fs = require("fs");
 
 // Utility function to clean up temporary files
 function cleanupFiles(...files) {
     files.forEach((file) => {
         try {
-            require("fs").unlinkSync(file);
+            fs.unlinkSync(file);
         } catch (err) {
             // Ignore errors
         }
@@ -21,24 +22,27 @@ function cleanupFiles(...files) {
     // Paths for temporary source file and executable
     const tmpDir = os.tmpdir();
     const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
-    const executable = path.join(tmpDir, `temp_${Date.now()}.exe`);
+    const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
+
+    // Define the path to Clang++
+    const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
 
     try {
         // Write the code to the source file
-        require("fs").writeFileSync(sourceFile, code);
+        fs.writeFileSync(sourceFile, code);
 
+        // Compile the code using Clang++ with appropriate flags
         const compileProcess = spawnSync(clangPath, [
-    sourceFile,
-    "-o", executable,
-    "-O2",          // Enable optimization level 2
-    "-std=c++17",   // Use a stable standard
-    "-Wall",        // Enable all warnings
-    "-lstdc++",     // Link the GNU standard C++ library
-], {
-    encoding: "utf-8",
-    timeout: 10000, // Timeout after 10 seconds
-});
-
+            sourceFile,
+            "-o", executable,
+            "-O2",         // Enable optimization level 2
+            "-std=c++17",  // Use C++17 standard
+            "-Wall",       // Enable all warnings
+            "-lstdc++",    // Link the GNU C++ standard library
+        ], {
+            encoding: "utf-8",
+            timeout: 10000, // Timeout after 10 seconds
+        });
 
         if (compileProcess.error || compileProcess.stderr) {
             cleanupFiles(sourceFile, executable);
@@ -75,4 +79,3 @@ function cleanupFiles(...files) {
         });
     }
 })();
-
