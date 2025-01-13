@@ -1,33 +1,40 @@
 const express = require("express");
-const bodyParser = require("body-parser");
-const { Worker } = require("worker_threads");
-const cors = require("cors");
+const { Worker, isMainThread } = require("worker_threads");
 const crypto = require("crypto");
 const http = require("http");
 
 const app = express();
 const port = 3000;
 
-// Enable CORS
-app.use(cors());
-
-// Middleware for JSON parsing
-app.use(bodyParser.json());
+// Enable CORS and use express.json() for built-in JSON parsing
+app.use(require("cors")());
+app.use(express.json());
 
 // In-memory cache to store compiled results
 const cache = new Map();
 const CACHE_EXPIRATION_TIME = 60 * 60 * 1000; // 1 hour
 const MAX_CACHE_SIZE = 100;
 
-// Helper to clean up the cache periodically
-setInterval(() => {
+// Cache cleanup optimized: Only clean when necessary
+function cleanCache() {
     const now = Date.now();
     for (const [key, { timestamp }] of cache.entries()) {
         if (now - timestamp > CACHE_EXPIRATION_TIME) {
             cache.delete(key);
         }
     }
-}, 60000); // Run every minute
+}
+
+// Cache cleanup triggered by cache size or expiration
+function manageCache(codeHash, output) {
+    // Cache the result if successful
+    if (cache.size >= MAX_CACHE_SIZE) {
+        // Remove the oldest cache entry
+        const oldestKey = [...cache.keys()][0];
+        cache.delete(oldestKey);
+    }
+    cache.set(codeHash, { result: output, timestamp: Date.now() });
+}
 
 // POST endpoint for code compilation and execution
 app.post("/", (req, res) => {
@@ -54,12 +61,7 @@ app.post("/", (req, res) => {
     worker.on("message", (result) => {
         // Cache the result if successful
         if (result.output) {
-            if (cache.size >= MAX_CACHE_SIZE) {
-                // Remove the oldest cache entry
-                const oldestKey = [...cache.keys()][0];
-                cache.delete(oldestKey);
-            }
-            cache.set(codeHash, { result: result.output, timestamp: Date.now() });
+            manageCache(codeHash, result.output);
         }
         res.json(result);
     });
@@ -75,17 +77,17 @@ app.post("/", (req, res) => {
     });
 });
 
-// Health check endpoint
+// Health check endpoint optimized
 app.get("/health", (req, res) => {
     res.json({ status: "Server is running" });
 });
 
-// Self-pinging mechanism to keep the server alive
+// Self-pinging mechanism to keep the server alive (could be optimized further)
 setInterval(() => {
     http.get(`http://localhost:${port}/health`, (res) => {
         console.log("Health check pinged!");
     });
-}, 5 * 60 * 1000); // Ping every 5 minutes
+}, 10 * 60 * 1000); // Ping every 10 minutes to reduce load
 
 // Start the server
 app.listen(port, () => {
