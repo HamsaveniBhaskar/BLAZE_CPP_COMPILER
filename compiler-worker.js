@@ -1,5 +1,5 @@
 const { parentPort, workerData } = require("worker_threads");
-const { spawn, spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
@@ -28,26 +28,30 @@ async function compileAndRun(code, input) {
         // Write the code to a temporary file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the code
-        const compileProcess = spawnSync(clangPath, [
+        // Compile the code asynchronously
+        const compileProcess = spawn(clangPath, [
             sourceFile,
             "-o", executable,
             "-O3",        // Maximum optimization
             "-std=c++17", // Use C++17 standard
             "-march=native",
             "-flto",
-        ], {
-            encoding: "utf-8",
-            timeout: 10000, // Timeout after 10 seconds
+        ]);
+
+        let compileError = "";
+
+        compileProcess.stderr.on("data", (data) => {
+            compileError += data.toString();
         });
 
-        if (compileProcess.error || compileProcess.stderr) {
-            cleanupFiles(sourceFile, executable);
-            return { error: `Compilation Error:\n${compileProcess.stderr}` };
-        }
+        compileProcess.on("close", (code) => {
+            if (code !== 0 || compileError) {
+                cleanupFiles(sourceFile, executable);
+                parentPort.postMessage({ error: `Compilation Error:\n${compileError}` });
+                return;
+            }
 
-        // Execute the compiled binary asynchronously
-        return new Promise((resolve, reject) => {
+            // Execute the compiled binary asynchronously
             const executeProcess = spawn(executable);
 
             // Provide input
@@ -55,28 +59,29 @@ async function compileAndRun(code, input) {
             executeProcess.stdin.end();
 
             let output = "";
-            let error = "";
+            let runtimeError = "";
 
             executeProcess.stdout.on("data", (data) => {
                 output += data.toString();
             });
 
             executeProcess.stderr.on("data", (data) => {
-                error += data.toString();
+                runtimeError += data.toString();
             });
 
             executeProcess.on("close", (code) => {
                 cleanupFiles(sourceFile, executable);
                 if (code === 0) {
-                    resolve({ output });
+                    parentPort.postMessage({ output });
                 } else {
-                    reject({ error: `Runtime Error:\n${error}` });
+                    parentPort.postMessage({ error: `Runtime Error:\n${runtimeError}` });
                 }
             });
         });
+
     } catch (err) {
         cleanupFiles(sourceFile, executable);
-        return { error: `Server error: ${err.message}` };
+        parentPort.postMessage({ error: `Server error: ${err.message}` });
     }
 }
 
