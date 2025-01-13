@@ -1,89 +1,62 @@
 const { parentPort, workerData } = require("worker_threads");
-const { spawn } = require("child_process");
+const { spawnSync, spawn } = require("child_process");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
-// Utility function to clean up temporary files
-function cleanupFiles(...files) {
-    files.forEach((file) => {
-        try {
-            fs.unlinkSync(file);
-        } catch (err) {
-            // Ignore errors
-        }
-    });
-}
+(async () => {
+    const { code, input, language } = workerData;
 
-// Compile and run the code
-async function compileAndRun(code, input) {
     const tmpDir = os.tmpdir();
-    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
+    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);  // Change the file extension based on the language
     const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
-
-    // Define the path to Clang++
-    const clangPath = "/usr/bin/clang++";
 
     try {
         // Write the code to a temporary file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the code asynchronously
-        const compileProcess = spawn(clangPath, [
-            sourceFile,
-            "-o", executable,
-            "-O3",        // Maximum optimization
-            "-std=c++17", // Use C++17 standard
-            "-march=native",
-            "-flto",
-        ]);
+        // Compile the code
+        let compileProcess;
+        if (language === "cpp") {
+            compileProcess = spawnSync("clang++", [sourceFile, "-o", executable, "-std=c++17", "-O2"], { encoding: "utf-8", timeout: 10000 });
+        } else if (language === "python") {
+            // No compilation needed for Python
+            compileProcess = { error: null, stderr: null };
+        }
 
-        let compileError = "";
+        if (compileProcess.error || compileProcess.stderr) {
+            return parentPort.postMessage({
+                error: `Compilation Error: ${compileProcess.stderr || compileProcess.error.message}`,
+            });
+        }
 
-        compileProcess.stderr.on("data", (data) => {
-            compileError += data.toString();
+        // Execute the compiled binary or interpreted script
+        const executeProcess = language === "python" ? spawn("python3", [sourceFile]) : spawn(executable);
+
+        let output = "";
+        let error = "";
+
+        executeProcess.stdout.on("data", (data) => {
+            output += data.toString();
         });
 
-        compileProcess.on("close", (code) => {
-            if (code !== 0 || compileError) {
-                cleanupFiles(sourceFile, executable);
-                parentPort.postMessage({ error: `Compilation Error:\n${compileError}` });
-                return;
+        executeProcess.stderr.on("data", (data) => {
+            error += data.toString();
+        });
+
+        executeProcess.on("close", (code) => {
+            fs.unlinkSync(sourceFile);
+            fs.unlinkSync(executable);
+
+            if (code === 0) {
+                parentPort.postMessage({ output });
+            } else {
+                parentPort.postMessage({ error: `Runtime Error: ${error}` });
             }
-
-            // Execute the compiled binary asynchronously
-            const executeProcess = spawn(executable);
-
-            // Provide input
-            executeProcess.stdin.write(input);
-            executeProcess.stdin.end();
-
-            let output = "";
-            let runtimeError = "";
-
-            executeProcess.stdout.on("data", (data) => {
-                output += data.toString();
-            });
-
-            executeProcess.stderr.on("data", (data) => {
-                runtimeError += data.toString();
-            });
-
-            executeProcess.on("close", (code) => {
-                cleanupFiles(sourceFile, executable);
-                if (code === 0) {
-                    parentPort.postMessage({ output });
-                } else {
-                    parentPort.postMessage({ error: `Runtime Error:\n${runtimeError}` });
-                }
-            });
         });
-
     } catch (err) {
-        cleanupFiles(sourceFile, executable);
-        parentPort.postMessage({ error: `Server error: ${err.message}` });
+        parentPort.postMessage({
+            error: `Server Error: ${err.message}`,
+        });
     }
-}
-
-// Export the function for the worker pool
-module.exports = { compileAndRun };
+})();
