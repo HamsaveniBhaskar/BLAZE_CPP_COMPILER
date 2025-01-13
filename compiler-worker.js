@@ -1,5 +1,5 @@
 const { parentPort, workerData } = require("worker_threads");
-const { spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
@@ -15,30 +15,27 @@ function cleanupFiles(...files) {
     });
 }
 
-// Worker logic
-(async () => {
-    const { code, input } = workerData;
-
-    // Paths for temporary source file and executable
+// Compile and run the code
+async function compileAndRun(code, input) {
     const tmpDir = os.tmpdir();
     const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
     const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
 
     // Define the path to Clang++
-    const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
+    const clangPath = "/usr/bin/clang++";
 
     try {
-        // Write the code to the source file
+        // Write the code to a temporary file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the code using Clang++ with appropriate flags
+        // Compile the code
         const compileProcess = spawnSync(clangPath, [
             sourceFile,
             "-o", executable,
-            "-O2",         // Enable optimization level 2
-            "-std=c++17",  // Use C++17 standard
-            "-Wall",       // Enable all warnings
-            "-lstdc++",    // Link the GNU C++ standard library
+            "-O3",        // Maximum optimization
+            "-std=c++17", // Use C++17 standard
+            "-march=native",
+            "-flto",
         ], {
             encoding: "utf-8",
             timeout: 10000, // Timeout after 10 seconds
@@ -46,36 +43,42 @@ function cleanupFiles(...files) {
 
         if (compileProcess.error || compileProcess.stderr) {
             cleanupFiles(sourceFile, executable);
-            const error = compileProcess.stderr || compileProcess.error.message;
-            return parentPort.postMessage({
-                error: { fullError: `Compilation Error:\n${error}` },
-            });
+            return { error: `Compilation Error:\n${compileProcess.stderr}` };
         }
 
-        // Execute the compiled binary
-        const runProcess = spawnSync(executable, [], {
-            input,
-            encoding: "utf-8",
-            timeout: 5000, // Timeout after 5 seconds
-        });
+        // Execute the compiled binary asynchronously
+        return new Promise((resolve, reject) => {
+            const executeProcess = spawn(executable);
 
-        cleanupFiles(sourceFile, executable);
+            // Provide input
+            executeProcess.stdin.write(input);
+            executeProcess.stdin.end();
 
-        if (runProcess.error || runProcess.stderr) {
-            const error = runProcess.stderr || runProcess.error.message;
-            return parentPort.postMessage({
-                error: { fullError: `Runtime Error:\n${error}` },
+            let output = "";
+            let error = "";
+
+            executeProcess.stdout.on("data", (data) => {
+                output += data.toString();
             });
-        }
 
-        // Send the output back to the main thread
-        return parentPort.postMessage({
-            output: runProcess.stdout || "No output received!",
+            executeProcess.stderr.on("data", (data) => {
+                error += data.toString();
+            });
+
+            executeProcess.on("close", (code) => {
+                cleanupFiles(sourceFile, executable);
+                if (code === 0) {
+                    resolve({ output });
+                } else {
+                    reject({ error: `Runtime Error:\n${error}` });
+                }
+            });
         });
     } catch (err) {
         cleanupFiles(sourceFile, executable);
-        return parentPort.postMessage({
-            error: { fullError: `Server error: ${err.message}` },
-        });
+        return { error: `Server error: ${err.message}` };
     }
-})();
+}
+
+// Export the function for the worker pool
+module.exports = { compileAndRun };
