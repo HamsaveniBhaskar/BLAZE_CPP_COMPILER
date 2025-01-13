@@ -3,6 +3,8 @@ const bodyParser = require("body-parser");
 const WorkerPool = require("workerpool");
 const crypto = require("crypto");
 const os = require("os");
+const cors = require("cors");
+app.use(cors());
 
 const app = express();
 const port = 3000;
