@@ -1,8 +1,8 @@
-# Use a lightweight Node.js image with Clang installed
+# Use a lightweight Node.js image with Alpine
 FROM node:16-alpine
 
 # Install necessary tools
-RUN apk add --no-cache clang build-base libc++ libc++abi-dev
+RUN apk add --no-cache clang build-base libcxx libcxxabi
 
 # Set the working directory
 WORKDIR /app
