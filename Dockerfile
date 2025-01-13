@@ -1,23 +1,21 @@
-# Use the official Node.js image as the base
-FROM node:16
+# Use a lightweight Node.js image with Clang installed
+FROM node:16-alpine
 
-RUN apt-get update && apt-get install -y clang build-essential libc++-dev libc++abi-dev
+# Install necessary tools
+RUN apk add --no-cache clang build-base libc++ libc++abi-dev
 
-
-# Set the working directory inside the container
+# Set the working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json into the container
+# Copy package.json and install dependencies
 COPY package.json package-lock.json ./
-
-# Install dependencies using npm
 RUN npm install
 
-# Copy the rest of the application code
+# Copy the application code
 COPY . .
 
 # Expose the application port
 EXPOSE 3000
 
 # Start the server
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
