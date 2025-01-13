@@ -3,33 +3,27 @@ const { spawnSync } = require("child_process");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const { vol } = require("memfs"); // In-memory file system
 
-// Utility function to clean up temporary files
-function cleanupFiles(...files) {
-    files.forEach((file) => {
-        try {
-            fs.unlinkSync(file);
-        } catch (err) {
-            // Ignore errors
-        }
-    });
+// Utility function to clean up temporary files (no longer needed for in-memory files)
+function cleanupFiles() {
+    // Nothing to clean up as files are in memory
 }
 
 // Worker logic
 (async () => {
     const { code, input } = workerData;
 
-    // Paths for temporary source file and executable
-    const tmpDir = os.tmpdir();
-    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
-    const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
+    // Paths for temporary source file and executable (in-memory)
+    const sourceFile = '/temp.cpp';
+    const executable = '/temp.out';
 
     // Define the path to Clang++
     const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
 
     try {
-        // Write the code to the source file
-        fs.writeFileSync(sourceFile, code);
+        // Write the code to the in-memory source file
+        vol.writeFileSync(sourceFile, code);
 
         // Compile the code using Clang++ with appropriate flags
         const compileProcess = spawnSync(clangPath, [
@@ -44,10 +38,9 @@ function cleanupFiles(...files) {
             encoding: "utf-8",
             timeout: 5000,  // Timeout in 5 seconds for faster feedback
         });
-        
 
         if (compileProcess.error || compileProcess.stderr) {
-            cleanupFiles(sourceFile, executable);
+            cleanupFiles();
             const error = compileProcess.stderr || compileProcess.error.message;
             return parentPort.postMessage({
                 error: { fullError: `Compilation Error:\n${error}` },
@@ -61,7 +54,7 @@ function cleanupFiles(...files) {
             timeout: 5000, // Timeout after 5 seconds
         });
 
-        cleanupFiles(sourceFile, executable);
+        cleanupFiles();
 
         if (runProcess.error || runProcess.stderr) {
             const error = runProcess.stderr || runProcess.error.message;
@@ -75,7 +68,7 @@ function cleanupFiles(...files) {
             output: runProcess.stdout || "No output received!",
         });
     } catch (err) {
-        cleanupFiles(sourceFile, executable);
+        cleanupFiles();
         return parentPort.postMessage({
             error: { fullError: `Server error: ${err.message}` },
         });
