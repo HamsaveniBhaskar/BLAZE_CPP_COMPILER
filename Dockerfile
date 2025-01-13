@@ -1,8 +1,8 @@
-# Use a lightweight Node.js image with Alpine
-FROM node:16-alpine
+# Use Node.js image based on Ubuntu
+FROM node:16
 
 # Install necessary tools
-RUN apk add --no-cache clang build-base libcxx libcxxabi
+RUN apt-get update && apt-get install -y clang build-essential libc++-dev libc++abi-dev
 
 # Set the working directory
 WORKDIR /app
