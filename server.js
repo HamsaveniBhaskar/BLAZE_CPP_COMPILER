@@ -1,7 +1,8 @@
 const express = require("express");
-const { Worker, isMainThread } = require("worker_threads");
+const { Worker } = require("worker_threads");
 const crypto = require("crypto");
 const http = require("http");
+const path = require("path");
 
 const app = express();
 const port = 3000;
@@ -9,32 +10,6 @@ const port = 3000;
 // Enable CORS and use express.json() for built-in JSON parsing
 app.use(require("cors")());
 app.use(express.json());
-
-// In-memory cache to store compiled results
-const cache = new Map();
-const CACHE_EXPIRATION_TIME = 60 * 60 * 1000; // 1 hour
-const MAX_CACHE_SIZE = 100;
-
-// Cache cleanup optimized: Only clean when necessary
-function cleanCache() {
-    const now = Date.now();
-    for (const [key, { timestamp }] of cache.entries()) {
-        if (now - timestamp > CACHE_EXPIRATION_TIME) {
-            cache.delete(key);
-        }
-    }
-}
-
-// Cache cleanup triggered by cache size or expiration
-function manageCache(codeHash, output) {
-    // Cache the result if successful
-    if (cache.size >= MAX_CACHE_SIZE) {
-        // Remove the oldest cache entry
-        const oldestKey = [...cache.keys()][0];
-        cache.delete(oldestKey);
-    }
-    cache.set(codeHash, { result: output, timestamp: Date.now() });
-}
 
 // POST endpoint for code compilation and execution
 app.post("/", (req, res) => {
@@ -45,25 +20,25 @@ app.post("/", (req, res) => {
         return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
     }
 
-    // Generate a unique hash for the code
-    const codeHash = crypto.createHash("md5").update(code).digest("hex");
+    // Generate a unique hash for the code and input to handle dynamic responses
+    const uniqueHash = crypto
+        .createHash("md5")
+        .update(code + input)
+        .digest("hex");
 
-    // Check if result is cached
-    if (cache.has(codeHash)) {
-        return res.json({ output: cache.get(codeHash).result });
-    }
-
-    // Create a worker thread for compilation
-    const worker = new Worker("./compiler-worker.js", {
+    // Create a new worker thread for dynamic compilation and execution
+    const worker = new Worker(path.join(__dirname, "compiler-worker.js"), {
         workerData: { code, input },
     });
 
     worker.on("message", (result) => {
-        // Cache the result if successful
+        // Respond with the result (output or error) dynamically
         if (result.output) {
-            manageCache(codeHash, result.output);
+            return res.json({ output: result.output });
         }
-        res.json(result);
+        if (result.error) {
+            return res.status(500).json({ error: result.error });
+        }
     });
 
     worker.on("error", (err) => {
@@ -77,17 +52,19 @@ app.post("/", (req, res) => {
     });
 });
 
-// Health check endpoint optimized
+// Health check endpoint
 app.get("/health", (req, res) => {
     res.json({ status: "Server is running" });
 });
 
-// Self-pinging mechanism to keep the server alive (could be optimized further)
+// Self-pinging mechanism to keep the server alive (optimized)
 setInterval(() => {
     http.get(`http://localhost:${port}/health`, (res) => {
         console.log("Health check pinged!");
+    }).on("error", (err) => {
+        console.error("Health check failed:", err.message);
     });
-}, 10 * 60 * 1000); // Ping every 10 minutes to reduce load
+}, 10 * 60 * 1000); // Ping every 10 minutes
 
 // Start the server
 app.listen(port, () => {
