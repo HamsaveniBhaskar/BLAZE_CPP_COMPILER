@@ -21,11 +21,9 @@ function cleanupFiles(...files) {
 
     // Paths for temporary source file and executable
     const tmpDir = os.tmpdir();
-    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`; // Unique identifier for each task
-    const sourceFile = path.join(tmpDir, `temp_${uniqueId}.cpp`);
-    const executable = path.join(tmpDir, `temp_${uniqueId}.out`);
+    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
+    const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
 
-    // Define the path to Clang++
     const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
 
     try {
@@ -36,20 +34,22 @@ function cleanupFiles(...files) {
         const compileProcess = spawnSync(clangPath, [
             sourceFile,
             "-o", executable,
-            "-O1",         // Reduce optimization to level 1 for faster compilation
-            "-std=c++17",  // Use C++17 standard
-            "-Wextra",     // Enable essential warnings only
-            "-lstdc++",    // Link the GNU C++ standard library
+            "-std=c++17",
+            "-O2",
+            "-Wall",
         ], {
             encoding: "utf-8",
-            timeout: 5000, // Reduced timeout for compilation
+            timeout: 10000, // 10 seconds timeout for compilation
         });
 
         if (compileProcess.error || compileProcess.stderr) {
             cleanupFiles(sourceFile, executable);
-            const error = compileProcess.stderr || compileProcess.error.message;
+            const errorTrace = compileProcess.stderr || compileProcess.error.message;
             return parentPort.postMessage({
-                error: { fullError: `Compilation Error:\n${error}` },
+                error: {
+                    fullError: `Compilation Error:\n${errorTrace}`,
+                    traceback: errorTrace, // Provide detailed traceback
+                },
             });
         }
 
@@ -57,15 +57,18 @@ function cleanupFiles(...files) {
         const runProcess = spawnSync(executable, [], {
             input,
             encoding: "utf-8",
-            timeout: 5000, // Timeout after 5 seconds
+            timeout: 5000, // Timeout after 5 seconds for execution
         });
 
         cleanupFiles(sourceFile, executable);
 
         if (runProcess.error || runProcess.stderr) {
-            const error = runProcess.stderr || runProcess.error.message;
+            const errorTrace = runProcess.stderr || runProcess.error.message;
             return parentPort.postMessage({
-                error: { fullError: `Runtime Error:\n${error}` },
+                error: {
+                    fullError: `Runtime Error:\n${errorTrace}`,
+                    traceback: errorTrace, // Provide detailed traceback
+                },
             });
         }
 
@@ -76,7 +79,10 @@ function cleanupFiles(...files) {
     } catch (err) {
         cleanupFiles(sourceFile, executable);
         return parentPort.postMessage({
-            error: { fullError: `Server error: ${err.message}` },
+            error: {
+                fullError: `Server Error:\n${err.message}`,
+                traceback: err.stack, // Provide full traceback for server errors
+            },
         });
     }
 })();
