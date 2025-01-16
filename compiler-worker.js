@@ -21,8 +21,9 @@ function cleanupFiles(...files) {
 
     // Paths for temporary source file and executable
     const tmpDir = os.tmpdir();
-    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
-    const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`; // Unique identifier for each task
+    const sourceFile = path.join(tmpDir, `temp_${uniqueId}.cpp`);
+    const executable = path.join(tmpDir, `temp_${uniqueId}.out`);
 
     // Define the path to Clang++
     const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
@@ -31,7 +32,7 @@ function cleanupFiles(...files) {
         // Write the code to the source file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the code using Clang++ with optimized flags
+        // Compile the code using Clang++
         const compileProcess = spawnSync(clangPath, [
             sourceFile,
             "-o", executable,
