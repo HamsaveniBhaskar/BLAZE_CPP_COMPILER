@@ -1,5 +1,5 @@
 const express = require("express");
-const { Worker, isMainThread } = require("worker_threads");
+const { Worker } = require("worker_threads");
 const http = require("http");
 
 const app = express();
@@ -18,37 +18,34 @@ app.post("/", (req, res) => {
         return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
     }
 
-    // Create a worker thread for compilation
+    // Create a worker thread for fast, isolated execution
     const worker = new Worker("./compiler-worker.js", {
         workerData: { code, input },
     });
 
-    worker.on("message", (result) => {
-        res.json(result);
-    });
-
-    worker.on("error", (err) => {
+    // Handle worker response
+    worker.once("message", (result) => res.json(result));
+    worker.once("error", (err) => {
         res.status(500).json({ error: { fullError: `Worker error: ${err.message}` } });
     });
-
-    worker.on("exit", (code) => {
+    worker.once("exit", (code) => {
         if (code !== 0) {
             console.error(`Worker stopped with exit code ${code}`);
         }
     });
 });
 
-// Health check endpoint optimized
+// Health check endpoint
 app.get("/health", (req, res) => {
     res.json({ status: "Server is running" });
 });
 
-// Self-pinging mechanism to keep the server alive (could be optimized further)
+// Self-pinging mechanism to keep the server alive
 setInterval(() => {
-    http.get(`http://localhost:${port}/health`, (res) => {
+    http.get(`http://localhost:${port}/health`, () => {
         console.log("Health check pinged!");
     });
-}, 10 * 60 * 1000); // Ping every 10 minutes to reduce load
+}, 5 * 60 * 1000); // Ping every 5 minutes
 
 // Start the server
 app.listen(port, () => {
