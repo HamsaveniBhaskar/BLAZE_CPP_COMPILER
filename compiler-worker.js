@@ -10,7 +10,7 @@ function cleanupFiles(...files) {
         try {
             fs.unlinkSync(file);
         } catch (err) {
-            // Ignore cleanup errors
+            // Ignore errors
         }
     });
 }
@@ -24,35 +24,31 @@ function cleanupFiles(...files) {
     const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
     const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
 
-    // Path to Clang++ compiler
-    const clangPath = "/usr/bin/clang++";
+    // Define the path to Clang++
+    const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
 
     try {
         // Write the code to the source file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the code using Clang++
+        // Compile the code using Clang++ with optimized flags
         const compileProcess = spawnSync(clangPath, [
             sourceFile,
             "-o", executable,
-            "-std=c++17", // Use C++17 standard
-            "-Wall",      // Enable all common warnings
-            "-Wextra",    // Enable extra warnings for better debugging
-            "-Wpedantic", // Enable strict language compliance warnings
+            "-O1",         // Reduce optimization to level 1 for faster compilation
+            "-std=c++17",  // Use C++17 standard
+            "-Wextra",     // Enable essential warnings only
+            "-lstdc++",    // Link the GNU C++ standard library
         ], {
             encoding: "utf-8",
-            timeout: 10000, // Compilation timeout of 10 seconds
+            timeout: 5000, // Reduced timeout for compilation
         });
 
-        // If there is a compilation error, return the detailed error message
         if (compileProcess.error || compileProcess.stderr) {
-            const errorTrace = compileProcess.stderr || compileProcess.error.message;
             cleanupFiles(sourceFile, executable);
+            const error = compileProcess.stderr || compileProcess.error.message;
             return parentPort.postMessage({
-                error: {
-                    fullError: `Compilation Error:\n${errorTrace}`, // Detailed error with line numbers
-                    traceback: errorTrace, // Traceback from the compiler output
-                },
+                error: { fullError: `Compilation Error:\n${error}` },
             });
         }
 
@@ -60,34 +56,26 @@ function cleanupFiles(...files) {
         const runProcess = spawnSync(executable, [], {
             input,
             encoding: "utf-8",
-            timeout: 5000, // Execution timeout of 5 seconds
+            timeout: 5000, // Timeout after 5 seconds
         });
 
         cleanupFiles(sourceFile, executable);
 
-        // If there is a runtime error, return the detailed runtime error
         if (runProcess.error || runProcess.stderr) {
-            const errorTrace = runProcess.stderr || runProcess.error.message;
+            const error = runProcess.stderr || runProcess.error.message;
             return parentPort.postMessage({
-                error: {
-                    fullError: `Runtime Error:\n${errorTrace}`, // Detailed runtime error
-                    traceback: errorTrace, // Traceback from the runtime output
-                },
+                error: { fullError: `Runtime Error:\n${error}` },
             });
         }
 
-        // Send the program output back to the main thread
+        // Send the output back to the main thread
         return parentPort.postMessage({
             output: runProcess.stdout || "No output received!",
         });
     } catch (err) {
-        // Handle any unexpected server errors
         cleanupFiles(sourceFile, executable);
         return parentPort.postMessage({
-            error: {
-                fullError: `Server Error:\n${err.message}`,
-                traceback: err.stack, // Detailed server-side error traceback
-            },
+            error: { fullError: `Server error: ${err.message}` },
         });
     }
 })();
