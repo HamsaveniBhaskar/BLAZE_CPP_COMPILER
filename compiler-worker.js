@@ -4,42 +4,51 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
-// Function to clean up temporary file paths from error messages
-function cleanErrorMessage(message, filePath) {
-    const fileRegex = new RegExp(filePath, "g");
-    return message.replace(fileRegex, "code");
+// Utility function to clean up temporary files
+function cleanupFiles(...files) {
+    files.forEach((file) => {
+        try {
+            fs.unlinkSync(file);
+        } catch (err) {
+            // Ignore errors
+        }
+    });
 }
 
+// Worker logic
 (async () => {
     const { code, input } = workerData;
 
     // Paths for temporary source file and executable
     const tmpDir = os.tmpdir();
-    const timestamp = Date.now();
-    const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
-    const executable = path.join(tmpDir, `temp_${timestamp}.out`);
+    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
+    const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
+
+    // Define the path to Clang++
+    const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
 
     try {
-        // Write the source code to a temporary file
+        // Write the code to the source file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the code using Clang++
-        const compileProcess = spawnSync("/usr/bin/clang++", [
+        // Compile the code using Clang++ with optimized flags
+        const compileProcess = spawnSync(clangPath, [
             sourceFile,
             "-o", executable,
-            "-O2",
-            "-std=c++17",
-        ], { encoding: "utf-8" });
+            "-O1",         // Reduce optimization to level 1 for faster compilation
+            "-std=c++17",  // Use C++17 standard
+            "-Wextra",     // Enable essential warnings only
+            "-lstdc++",    // Link the GNU C++ standard library
+        ], {
+            encoding: "utf-8",
+            timeout: 5000, // Reduced timeout for compilation
+        });
 
-        // Check for compilation errors
-        if (compileProcess.error || compileProcess.status !== 0) {
-            const errorMessage = cleanErrorMessage(
-                compileProcess.stderr || compileProcess.error.message,
-                sourceFile
-            );
-            fs.unlinkSync(sourceFile); // Cleanup source file
+        if (compileProcess.error || compileProcess.stderr) {
+            cleanupFiles(sourceFile, executable);
+            const error = compileProcess.stderr || compileProcess.error.message;
             return parentPort.postMessage({
-                error: { fullError: `Compilation Error:\n${errorMessage}` },
+                error: { fullError: `Compilation Error:\n${error}` },
             });
         }
 
@@ -47,32 +56,24 @@ function cleanErrorMessage(message, filePath) {
         const runProcess = spawnSync(executable, [], {
             input,
             encoding: "utf-8",
-            timeout: 3000, // 3-second timeout for execution
+            timeout: 5000, // Timeout after 5 seconds
         });
 
-        // Cleanup files
-        fs.unlinkSync(sourceFile);
-        fs.unlinkSync(executable);
+        cleanupFiles(sourceFile, executable);
 
-        // Check for runtime errors
-        if (runProcess.error || runProcess.status !== 0) {
+        if (runProcess.error || runProcess.stderr) {
+            const error = runProcess.stderr || runProcess.error.message;
             return parentPort.postMessage({
-                error: { fullError: `Runtime Error:\n${runProcess.stderr || runProcess.error.message}` },
+                error: { fullError: `Runtime Error:\n${error}` },
             });
         }
 
-        // Send the execution output back
+        // Send the output back to the main thread
         return parentPort.postMessage({
             output: runProcess.stdout || "No output received!",
         });
     } catch (err) {
-        // Handle unexpected errors
-        try {
-            fs.unlinkSync(sourceFile);
-            fs.unlinkSync(executable);
-        } catch (cleanupErr) {
-            // Ignore cleanup errors
-        }
+        cleanupFiles(sourceFile, executable);
         return parentPort.postMessage({
             error: { fullError: `Server error: ${err.message}` },
         });
