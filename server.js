@@ -20,6 +20,7 @@ function cleanCache() {
     const now = Date.now();
     for (const [key, { timestamp }] of cache.entries()) {
         if (now - timestamp > CACHE_EXPIRATION_TIME) {
+            console.log(`Cache expired for key: ${key}`);
             cache.delete(key);
         }
     }
@@ -88,6 +89,9 @@ setInterval(() => {
         console.log("Health check pinged!");
     });
 }, 10 * 60 * 1000); // Ping every 10 minutes to reduce load
+
+// Regular cache cleanup every 30 minutes
+setInterval(cleanCache, 30 * 60 * 1000); // Clean cache every 30 minutes
 
 // Start the server
 app.listen(port, () => {
