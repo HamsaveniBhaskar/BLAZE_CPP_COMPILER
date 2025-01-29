@@ -24,7 +24,7 @@ const cleanupFiles = (...files) => files.forEach((file) => fs.unlink(file, () =>
         const compile = spawnSync(clangPath, [
             sourceFile, "-o", executable,
             "-Ofast", "-march=native", "-flto", "-std=c++17", "-pipe", "-Wextra"
-        ], { encoding: "utf-8", timeout: 1000 }); // Max 1s timeout
+        ], { encoding: "utf-8", timeout: 20000 }); // Max 1s timeout
 
         if (compile.error || compile.stderr) {
             cleanupFiles(sourceFile, executable);
