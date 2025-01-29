@@ -4,78 +4,45 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
-// Utility function to clean up temporary files
-function cleanupFiles(...files) {
-    files.forEach((file) => {
-        try {
-            fs.unlinkSync(file);
-        } catch (err) {
-            // Ignore errors
-        }
-    });
-}
+// Utility function for cleanup
+const cleanupFiles = (...files) => files.forEach((file) => fs.unlinkSync(file, () => {}));
 
-// Worker logic
 (async () => {
     const { code, input } = workerData;
 
-    // Paths for temporary source file and executable
+    // Generate unique file names with timestamp
     const tmpDir = os.tmpdir();
-    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
-    const executable = path.join(tmpDir, `temp_${Date.now()}.out`);
-
-    // Define the path to Clang++
-    const clangPath = "/usr/bin/clang++"; // Full path to clang++ binary
+    const timestamp = Date.now();
+    const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
+    const executable = path.join(tmpDir, `temp_${timestamp}.out`);
+    const clangPath = "/usr/bin/clang++"; // Ensure Clang++ is correctly installed
 
     try {
-        // Write the code to the source file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the code using Clang++ with optimized flags
-        const compileProcess = spawnSync(clangPath, [
-            sourceFile,
-            "-o", executable,
-            "-O1",         // Reduce optimization to level 1 for faster compilation
-            "-std=c++17",  // Use C++17 standard
-            "-Wextra",     // Enable essential warnings only
-            "-lstdc++",    // Link the GNU C++ standard library
-        ], {
-            encoding: "utf-8",
-            timeout: 5000, // Reduced timeout for compilation
-        });
+        // Fastest possible compilation settings
+        const compile = spawnSync(clangPath, [
+            sourceFile, "-o", executable,
+            "-O2", "-std=c++17", "-Wextra", "-lstdc++"
+        ], { encoding: "utf-8", timeout: 3000 }); // Faster timeout
 
-        if (compileProcess.error || compileProcess.stderr) {
+        if (compile.error || compile.stderr) {
             cleanupFiles(sourceFile, executable);
-            const error = compileProcess.stderr || compileProcess.error.message;
-            return parentPort.postMessage({
-                error: { fullError: `Compilation Error:\n${error}` },
-            });
+            return parentPort.postMessage({ error: { fullError: `Compilation Error:\n${compile.stderr || compile.error.message}` } });
         }
 
-        // Execute the compiled binary
-        const runProcess = spawnSync(executable, [], {
-            input,
-            encoding: "utf-8",
-            timeout: 5000, // Timeout after 5 seconds
-        });
+        // Execute binary
+        const run = spawnSync(executable, [], { input, encoding: "utf-8", timeout: 3000 });
 
         cleanupFiles(sourceFile, executable);
 
-        if (runProcess.error || runProcess.stderr) {
-            const error = runProcess.stderr || runProcess.error.message;
-            return parentPort.postMessage({
-                error: { fullError: `Runtime Error:\n${error}` },
-            });
+        if (run.error || run.stderr) {
+            return parentPort.postMessage({ error: { fullError: `Runtime Error:\n${run.stderr || run.error.message}` } });
         }
 
-        // Send the output back to the main thread
-        return parentPort.postMessage({
-            output: runProcess.stdout || "No output received!",
-        });
+        parentPort.postMessage({ output: run.stdout || "No output received!" });
     } catch (err) {
         cleanupFiles(sourceFile, executable);
-        return parentPort.postMessage({
-            error: { fullError: `Server error: ${err.message}` },
-        });
+        parentPort.postMessage({ error: { fullError: `Server error: ${err.message}` } });
     }
 })();
