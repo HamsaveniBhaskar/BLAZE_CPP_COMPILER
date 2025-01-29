@@ -4,35 +4,35 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
-// Fast cleanup utility
-const cleanupFiles = (...files) => files.forEach((file) => fs.unlink(file, () => {}));
+// Utility function for cleanup
+const cleanupFiles = (...files) => files.forEach((file) => fs.unlinkSync(file, () => {}));
 
 (async () => {
     const { code, input } = workerData;
 
-    // Use RAM-based filesystem (if available) for near-zero I/O latency
-    const tmpDir = fs.existsSync("/dev/shm") ? "/dev/shm" : os.tmpdir();
+    // Generate unique file names with timestamp
+    const tmpDir = os.tmpdir();
     const timestamp = Date.now();
     const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
     const executable = path.join(tmpDir, `temp_${timestamp}.out`);
-    const clangPath = "/usr/bin/clang++"; 
+    const clangPath = "/usr/bin/clang++"; // Ensure Clang++ is correctly installed
 
     try {
         fs.writeFileSync(sourceFile, code);
 
-        // Ultra-fast compilation flags
+        // Fastest possible compilation settings
         const compile = spawnSync(clangPath, [
             sourceFile, "-o", executable,
-            "-Ofast", "-march=native", "-flto", "-std=c++17", "-pipe", "-Wextra"
-        ], { encoding: "utf-8", timeout: 20000 }); // Max 1s timeout
+            "-O2", "-std=c++17", "-Wextra", "-lstdc++"
+        ], { encoding: "utf-8", timeout: 3000 }); // Faster timeout
 
         if (compile.error || compile.stderr) {
             cleanupFiles(sourceFile, executable);
             return parentPort.postMessage({ error: { fullError: `Compilation Error:\n${compile.stderr || compile.error.message}` } });
         }
 
-        // Execute in parallel for maximum speed
-        const run = spawnSync(executable, [], { input, encoding: "utf-8", timeout: 2000 });
+        // Execute binary
+        const run = spawnSync(executable, [], { input, encoding: "utf-8", timeout: 3000 });
 
         cleanupFiles(sourceFile, executable);
 
