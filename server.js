@@ -2,6 +2,7 @@ const express = require("express");
 const { Worker } = require("worker_threads");
 const cors = require("cors");
 const http = require("http");
+const Piscina = require("piscina");
 
 const app = express();
 const port = 3000;
@@ -9,21 +10,28 @@ const port = 3000;
 app.use(cors());
 app.use(express.json());
 
+// Create a worker pool (limit max concurrency to optimize CPU usage)
+const pool = new Piscina({
+    filename: require.resolve("./compiler-worker.js"),
+    maxThreads: Math.max(2, require("os").cpus().length - 1), // Efficient CPU allocation
+    idleTimeout: 30000, // Auto-close idle workers
+});
+
 // POST endpoint for compilation & execution
-app.post("/", (req, res) => {
+app.post("/", async (req, res) => {
     const { code, input } = req.body;
 
     if (!code) {
         return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
     }
 
-    const worker = new Worker("./compiler-worker.js", { workerData: { code, input } });
-
-    worker.on("message", (result) => res.json(result));
-    worker.on("error", (err) => res.status(500).json({ error: { fullError: `Worker error: ${err.message}` } }));
-    worker.on("exit", (exitCode) => {
-        if (exitCode !== 0) console.error(`Worker exited with code ${exitCode}`);
-    });
+    try {
+        // Send task to worker pool
+        const result = await pool.run({ code, input }, { timeout: 5000 }); // 5s timeout for safety
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: { fullError: `Worker error: ${error.message}` } });
+    }
 });
 
 // Health check (optimized)
