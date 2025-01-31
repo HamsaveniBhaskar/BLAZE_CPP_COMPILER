@@ -4,22 +4,25 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
+// Shared temp directory for file handling
+const tmpDir = path.join(os.tmpdir(), "blaze_code_temp");
+if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
 const cleanupFiles = (...files) => {
     files.forEach((file) => fs.unlink(file, () => {}));
 };
 
 (async () => {
     const { code, input } = workerData;
-    const tmpDir = os.tmpdir();
     const timestamp = Date.now();
     const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
     const executable = path.join(tmpDir, `temp_${timestamp}.out`);
-    const clangPath = "/usr/bin/clang++"; // Ensure Clang++ is correctly installed
+    const clangPath = "/usr/bin/clang++";
 
     try {
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the C++ code asynchronously
+        // Compile asynchronously
         const compile = spawn(clangPath, [
             sourceFile, "-o", executable,
             "-O2", "-std=c++17", "-Wextra", "-lstdc++"
@@ -34,7 +37,7 @@ const cleanupFiles = (...files) => {
                 return parentPort.postMessage({ error: { fullError: `Compilation Error:\n${compileError}` } });
             }
 
-            // Run the compiled program asynchronously
+            // Run program asynchronously
             const run = spawn(executable);
             let output = "", runtimeError = "";
 
@@ -44,7 +47,7 @@ const cleanupFiles = (...files) => {
             run.stdout.on("data", (data) => output += data.toString());
             run.stderr.on("data", (data) => runtimeError += data.toString());
 
-            // Kill the process if it exceeds 3 seconds
+            // Kill process if it exceeds 3 seconds
             const timeout = setTimeout(() => {
                 run.kill();
                 cleanupFiles(sourceFile, executable);
