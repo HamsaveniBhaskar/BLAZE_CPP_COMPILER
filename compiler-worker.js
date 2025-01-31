@@ -4,7 +4,6 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
-// Shared temp directory for file handling
 const tmpDir = path.join(os.tmpdir(), "blaze_code_temp");
 if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
@@ -13,22 +12,22 @@ const cleanupFiles = (...files) => {
 };
 
 (async () => {
-    const { code, input } = workerData;
-    const timestamp = Date.now();
-    const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
-    const executable = path.join(tmpDir, `temp_${timestamp}.out`);
-    const clangPath = "/usr/bin/clang++";
-
     try {
+        if (!workerData || !workerData.code) {
+            throw new Error("Worker received invalid data.");
+        }
+
+        const { code, input } = workerData;
+        const timestamp = Date.now();
+        const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
+        const executable = path.join(tmpDir, `temp_${timestamp}.out`);
+        const clangPath = "/usr/bin/clang++";
+
         fs.writeFileSync(sourceFile, code);
 
-        // Compile asynchronously
-        const compile = spawn(clangPath, [
-            sourceFile, "-o", executable,
-            "-O2", "-std=c++17", "-Wextra", "-lstdc++"
-        ]);
-
+        const compile = spawn(clangPath, [sourceFile, "-o", executable, "-O2", "-std=c++17"]);
         let compileError = "";
+
         compile.stderr.on("data", (data) => compileError += data.toString());
 
         compile.on("close", (code) => {
@@ -37,7 +36,6 @@ const cleanupFiles = (...files) => {
                 return parentPort.postMessage({ error: { fullError: `Compilation Error:\n${compileError}` } });
             }
 
-            // Run program asynchronously
             const run = spawn(executable);
             let output = "", runtimeError = "";
 
@@ -47,7 +45,6 @@ const cleanupFiles = (...files) => {
             run.stdout.on("data", (data) => output += data.toString());
             run.stderr.on("data", (data) => runtimeError += data.toString());
 
-            // Kill process if it exceeds 3 seconds
             const timeout = setTimeout(() => {
                 run.kill();
                 cleanupFiles(sourceFile, executable);
@@ -65,8 +62,8 @@ const cleanupFiles = (...files) => {
                 parentPort.postMessage({ output: output.trim() || "No output received!" });
             });
         });
+
     } catch (err) {
-        cleanupFiles(sourceFile, executable);
-        parentPort.postMessage({ error: { fullError: `Server error: ${err.message}` } });
+        parentPort.postMessage({ error: { fullError: `Worker crashed: ${err.message}` } });
     }
 })();
