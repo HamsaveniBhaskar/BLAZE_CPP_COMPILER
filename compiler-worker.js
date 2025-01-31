@@ -1,16 +1,15 @@
 const { parentPort, workerData } = require("worker_threads");
-const { spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
-// Utility function for cleanup
-const cleanupFiles = (...files) => files.forEach((file) => fs.unlinkSync(file, () => {}));
+const cleanupFiles = (...files) => {
+    files.forEach((file) => fs.unlink(file, () => {}));
+};
 
 (async () => {
     const { code, input } = workerData;
-
-    // Generate unique file names with timestamp
     const tmpDir = os.tmpdir();
     const timestamp = Date.now();
     const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
@@ -20,27 +19,49 @@ const cleanupFiles = (...files) => files.forEach((file) => fs.unlinkSync(file, (
     try {
         fs.writeFileSync(sourceFile, code);
 
-        // Fastest possible compilation settings
-        const compile = spawnSync(clangPath, [
+        // Compile the C++ code asynchronously
+        const compile = spawn(clangPath, [
             sourceFile, "-o", executable,
             "-O2", "-std=c++17", "-Wextra", "-lstdc++"
-        ], { encoding: "utf-8", timeout: 3000 }); // Faster timeout
+        ]);
 
-        if (compile.error || compile.stderr) {
-            cleanupFiles(sourceFile, executable);
-            return parentPort.postMessage({ error: { fullError: `Compilation Error:\n${compile.stderr || compile.error.message}` } });
-        }
+        let compileError = "";
+        compile.stderr.on("data", (data) => compileError += data.toString());
 
-        // Execute binary
-        const run = spawnSync(executable, [], { input, encoding: "utf-8", timeout: 3000 });
+        compile.on("close", (code) => {
+            if (code !== 0 || compileError) {
+                cleanupFiles(sourceFile, executable);
+                return parentPort.postMessage({ error: { fullError: `Compilation Error:\n${compileError}` } });
+            }
 
-        cleanupFiles(sourceFile, executable);
+            // Run the compiled program asynchronously
+            const run = spawn(executable);
+            let output = "", runtimeError = "";
 
-        if (run.error || run.stderr) {
-            return parentPort.postMessage({ error: { fullError: `Runtime Error:\n${run.stderr || run.error.message}` } });
-        }
+            run.stdin.write(input);
+            run.stdin.end();
 
-        parentPort.postMessage({ output: run.stdout || "No output received!" });
+            run.stdout.on("data", (data) => output += data.toString());
+            run.stderr.on("data", (data) => runtimeError += data.toString());
+
+            // Kill the process if it exceeds 3 seconds
+            const timeout = setTimeout(() => {
+                run.kill();
+                cleanupFiles(sourceFile, executable);
+                parentPort.postMessage({ error: { fullError: "Runtime Error: Execution timed out!" } });
+            }, 3000);
+
+            run.on("close", (exitCode) => {
+                clearTimeout(timeout);
+                cleanupFiles(sourceFile, executable);
+
+                if (exitCode !== 0 || runtimeError) {
+                    return parentPort.postMessage({ error: { fullError: `Runtime Error:\n${runtimeError}` } });
+                }
+
+                parentPort.postMessage({ output: output.trim() || "No output received!" });
+            });
+        });
     } catch (err) {
         cleanupFiles(sourceFile, executable);
         parentPort.postMessage({ error: { fullError: `Server error: ${err.message}` } });
