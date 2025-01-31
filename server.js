@@ -3,6 +3,7 @@ const Piscina = require("piscina");
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
+const os = require("os");
 
 const app = express();
 const port = 3000;
@@ -10,12 +11,14 @@ const port = 3000;
 app.use(cors());
 app.use(express.json());
 
-// Use an absolute path to reference the worker file
+// Optimize worker pool for high concurrency
 const pool = new Piscina({
     filename: path.resolve(__dirname, "compiler-worker.js"), 
-    maxThreads: Math.max(2, require("os").cpus().length - 1), // Optimize worker usage
-    idleTimeout: 30000, // Auto-close idle workers
-    errorHandler: (err) => console.error("Worker Error:", err) // Capture worker errors
+    maxThreads: Math.max(2, os.cpus().length), // Allow full CPU utilization
+    idleTimeout: 60000, // Keep workers alive longer to avoid frequent creation
+    minThreads: Math.max(2, os.cpus().length / 2), // Keep minimum active threads
+    concurrentTasksPerWorker: 2, // Allow workers to handle multiple tasks
+    errorHandler: (err) => console.error("Piscina Worker Error:", err)
 });
 
 // POST endpoint for compilation & execution
@@ -27,7 +30,7 @@ app.post("/", async (req, res) => {
     }
 
     try {
-        // Execute the worker with Piscina
+        // Run code execution in Piscina worker with a 5-second timeout
         const result = await pool.run({ code, input }, { timeout: 5000 });
         res.json(result);
     } catch (error) {
