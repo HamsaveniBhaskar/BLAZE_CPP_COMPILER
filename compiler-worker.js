@@ -22,7 +22,7 @@ module.exports = async function ({ code, input }) {
 
     const timestamp = Date.now();
     const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
-    const executable = path.join(tmpDir, `temp_${timestamp}.out`);
+    const executable = path.join(tmpDir, `temp_${timestamp}.exe`);
     const clangPath = "/usr/bin/clang++";
 
     try {
