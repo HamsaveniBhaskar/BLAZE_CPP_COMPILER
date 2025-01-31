@@ -1,20 +1,22 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const os = require("os");
-const fs = require("fs");
+const fs = require("fs").promises;
 
 // Ensure temporary directory exists
 const tmpDir = path.join(os.tmpdir(), "blaze_code_temp");
-if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+fs.mkdir(tmpDir, { recursive: true }).catch(() => {});
 
 // Utility function for cleanup
-const cleanupFiles = (...files) => {
-    files.forEach((file) => {
-        fs.unlink(file, () => {});
-    });
+const cleanupFiles = async (...files) => {
+    for (const file of files) {
+        try {
+            await fs.unlink(file);
+        } catch (err) {}
+    }
 };
 
-// **Exported function for Piscina**
+// Exported function for Piscina
 module.exports = async function ({ code, input }) {
     if (!code) {
         throw new Error("Worker received invalid data: No code provided.");
@@ -22,54 +24,68 @@ module.exports = async function ({ code, input }) {
 
     const timestamp = Date.now();
     const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
-    const executable = path.join(tmpDir, `temp_${timestamp}.exe`);
+    const executable = path.join(tmpDir, `temp_${timestamp}.out`);
     const clangPath = "/usr/bin/clang++";
 
     try {
-        fs.writeFileSync(sourceFile, code);
+        // Write source file
+        await fs.writeFile(sourceFile, code);
 
         // Compile code
-        const compile = spawn(clangPath, [
+        const compileProcess = spawn(clangPath, [
             sourceFile, "-o", executable, "-O2", "-std=c++17"
         ]);
 
         let compileError = "";
-        compile.stderr.on("data", (data) => compileError += data.toString());
 
-        return new Promise((resolve, reject) => {
-            compile.on("close", (code) => {
-                if (code !== 0 || compileError) {
+        compileProcess.stderr.on("data", (data) => {
+            compileError += data.toString();
+        });
+
+        await new Promise((resolve, reject) => {
+            compileProcess.on("close", (code) => {
+                if (code !== 0) {
                     cleanupFiles(sourceFile, executable);
                     return reject({ error: { fullError: `Compilation Error:\n${compileError}` } });
                 }
+                resolve();
+            });
+        });
 
-                // Run compiled binary
-                const run = spawn(executable);
-                let output = "", runtimeError = "";
+        // Execute compiled binary
+        return new Promise((resolve, reject) => {
+            const runProcess = spawn(executable, []);
 
-                run.stdin.write(input);
-                run.stdin.end();
+            let output = "";
+            let runtimeError = "";
 
-                run.stdout.on("data", (data) => output += data.toString());
-                run.stderr.on("data", (data) => runtimeError += data.toString());
+            runProcess.stdout.on("data", (data) => {
+                output += data.toString();
+            });
 
-                // Set execution timeout
-                const timeout = setTimeout(() => {
-                    run.kill();
-                    cleanupFiles(sourceFile, executable);
-                    reject({ error: { fullError: "Runtime Error: Execution timed out!" } });
-                }, 3000);
+            runProcess.stderr.on("data", (data) => {
+                runtimeError += data.toString();
+            });
 
-                run.on("close", (exitCode) => {
-                    clearTimeout(timeout);
-                    cleanupFiles(sourceFile, executable);
+            // Only send input if provided and not empty
+            if (input && input.trim()) {
+                runProcess.stdin.write(input + "\n");
+                runProcess.stdin.end();
+            }
 
-                    if (exitCode !== 0 || runtimeError) {
-                        return reject({ error: { fullError: `Runtime Error:\n${runtimeError}` } });
-                    }
+            runProcess.on("close", (code) => {
+                cleanupFiles(sourceFile, executable);
 
-                    resolve({ output: output.trim() || "No output received!" });
-                });
+                if (code !== 0 || runtimeError) {
+                    return reject({ error: { fullError: `Runtime Error:\n${runtimeError}` } });
+                }
+
+                resolve({ output: output.trim() || "No output received!" });
+            });
+
+            runProcess.on("error", (err) => {
+                cleanupFiles(sourceFile, executable);
+                reject({ error: { fullError: `Execution Error: ${err.message}` } });
             });
         });
 
