@@ -10,10 +10,10 @@ const port = 3000;
 app.use(cors());
 app.use(express.json());
 
-// Use an absolute path to avoid worker file resolution issues
+// Use an absolute path to reference the worker file
 const pool = new Piscina({
     filename: path.resolve(__dirname, "compiler-worker.js"), 
-    maxThreads: Math.max(2, require("os").cpus().length - 1), // Adjust thread usage
+    maxThreads: Math.max(2, require("os").cpus().length - 1), // Optimize worker usage
     idleTimeout: 30000, // Auto-close idle workers
     errorHandler: (err) => console.error("Worker Error:", err) // Capture worker errors
 });
@@ -27,7 +27,7 @@ app.post("/", async (req, res) => {
     }
 
     try {
-        // Run worker task
+        // Execute the worker with Piscina
         const result = await pool.run({ code, input }, { timeout: 5000 });
         res.json(result);
     } catch (error) {
