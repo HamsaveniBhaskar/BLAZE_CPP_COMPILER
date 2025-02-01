@@ -43,7 +43,6 @@ app.post("/", async (req, res) => {
     }
 });
 
-
 app.get("/health", (_, res) => res.json({ status: "Server is running" }));
 
 setInterval(() => http.get(`http://localhost:${port}/health`), 15 * 60 * 1000);
