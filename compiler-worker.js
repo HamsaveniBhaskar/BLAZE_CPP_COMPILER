@@ -12,17 +12,13 @@ function cleanupFiles(files) {
                 fs.unlinkSync(file);
             }
         } catch (err) {
-            // Ignore errors for non-existent files
             console.error(`Error cleaning up file: ${file}`);
         }
     });
 }
 
 // Function to compile and run code
-async function handleWorkerTask() {
-    const { code, input } = workerData || {};  // Default to an empty object if workerData is undefined
-
-    // Check if code is provided
+async function handleWorkerTask({ code, input }) {
     if (!code) {
         return parentPort.postMessage({
             error: { fullError: "No code provided for compilation." }
@@ -78,8 +74,7 @@ async function handleWorkerTask() {
     }
 }
 
-// Listen for incoming messages and handle the task
-parentPort.on('message', () => {
-    handleWorkerTask();
+// Export the handler function that will handle tasks sent by the main thread
+parentPort.on('message', (taskData) => {
+    handleWorkerTask(taskData);
 });
-
