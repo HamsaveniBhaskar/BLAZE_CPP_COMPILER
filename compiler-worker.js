@@ -15,11 +15,17 @@ const cleanupFiles = async (...files) => {
     }
 };
 
-// Parse compilation errors
+// Function to parse compiler errors into readable format
 const parseCompileError = (errorMsg) => {
     return errorMsg.split("\n").map(line => {
         const match = line.match(/(.+?):(\d+):(\d+): (error|warning): (.+)/);
-        return match ? { file: match[1], line: parseInt(match[2], 10), column: parseInt(match[3], 10), message: match[5] } : null;
+        return match ? {
+            file: match[1],
+            line: parseInt(match[2], 10),
+            column: parseInt(match[3], 10),
+            type: match[4],
+            message: match[5]
+        } : null;
     }).filter(Boolean);
 };
 
@@ -46,7 +52,12 @@ module.exports = async function ({ code, input }) {
             compileProcess.on("close", (code) => {
                 if (code !== 0) {
                     cleanupFiles(sourceFile, executable);
-                    return reject({ error: { fullError: `=== COMPILATION ERROR ===\n${compileError}`, details: parseCompileError(compileError) } });
+                    return reject({
+                        error: {
+                            fullError: `=== COMPILATION ERROR ===\n${compileError}`,
+                            details: parseCompileError(compileError)
+                        }
+                    });
                 }
                 resolve();
             });
@@ -68,19 +79,34 @@ module.exports = async function ({ code, input }) {
             runProcess.on("close", (code) => {
                 cleanupFiles(sourceFile, executable);
                 if (code !== 0 || runtimeError) {
-                    return reject({ error: { fullError: `=== RUNTIME ERROR ===\n${runtimeError}`, traceback: runtimeError } });
+                    return reject({
+                        error: {
+                            fullError: `=== RUNTIME ERROR ===\n${runtimeError}`,
+                            traceback: runtimeError
+                        }
+                    });
                 }
                 resolve({ output: output.trim() || "No output received!" });
             });
 
             runProcess.on("error", (err) => {
                 cleanupFiles(sourceFile, executable);
-                reject({ error: { fullError: `=== EXECUTION ERROR === ${err.message}`, traceback: err.stack } });
+                reject({
+                    error: {
+                        fullError: `=== EXECUTION ERROR === ${err.message}`,
+                        traceback: err.stack
+                    }
+                });
             });
         });
 
     } catch (err) {
         cleanupFiles(sourceFile, executable);
-        throw { error: { fullError: `=== WORKER CRASHED ===\n${err.message}`, traceback: err.stack } };
+        throw {
+            error: {
+                fullError: `=== WORKER CRASHED ===\n${err.message || "Unknown Error"}`,
+                traceback: err.stack || "No traceback available"
+            }
+        };
     }
 };
