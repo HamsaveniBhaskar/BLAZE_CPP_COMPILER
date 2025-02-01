@@ -46,7 +46,7 @@ module.exports = async function ({ code, input }) {
             compileProcess.on("close", (code) => {
                 if (code !== 0) {
                     cleanupFiles(sourceFile, executable);
-                    return reject({ error: { fullError: `Compilation Error:\n${compileError}` } });
+                    return reject({ error: { fullError: `Compilation Error:\n${compileError}`, traceback: compileError } });
                 }
                 resolve();
             });
@@ -77,7 +77,7 @@ module.exports = async function ({ code, input }) {
                 cleanupFiles(sourceFile, executable);
 
                 if (code !== 0 || runtimeError) {
-                    return reject({ error: { fullError: `Runtime Error:\n${runtimeError}` } });
+                    return reject({ error: { fullError: `Runtime Error:\n${runtimeError}`, traceback: runtimeError } });
                 }
 
                 resolve({ output: output.trim() || "No output received!" });
@@ -85,12 +85,12 @@ module.exports = async function ({ code, input }) {
 
             runProcess.on("error", (err) => {
                 cleanupFiles(sourceFile, executable);
-                reject({ error: { fullError: `Execution Error: ${err.message}` } });
+                reject({ error: { fullError: `Execution Error: ${err.message}`, traceback: err.stack } });
             });
         });
 
     } catch (err) {
         cleanupFiles(sourceFile, executable);
-        throw new Error(`Worker crashed: ${err.message}`);
+        throw new Error(`Worker crashed: ${err.message}\n${err.stack}`);
     }
 };
