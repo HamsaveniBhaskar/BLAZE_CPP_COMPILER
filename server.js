@@ -36,13 +36,16 @@ app.post("/", async (req, res) => {
     } catch (error) {
         console.error("Piscina Error:", error);
 
-        let errorResponse = { error: { fullError: `Worker error: ${error.message}` } };
-
-        if (error.stack) {
-            errorResponse.error.traceback = error.stack; // Send traceback details
+        if (error.error) {
+            return res.status(500).json(error.error);
         }
 
-        res.status(500).json(errorResponse);
+        res.status(500).json({ 
+            error: { 
+                fullError: `Worker error: ${error.message}`, 
+                traceback: error.stack 
+            } 
+        });
     }
 });
 
