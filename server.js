@@ -8,11 +8,9 @@ const os = require("os");
 const app = express();
 const port = 3000;
 
-// Allow all CORS origins
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// Piscina worker pool
 const pool = new Piscina({
     filename: path.resolve(__dirname, "compiler-worker.js"),
     maxThreads: Math.max(2, os.cpus().length),
@@ -21,7 +19,6 @@ const pool = new Piscina({
     concurrentTasksPerWorker: 2
 });
 
-// POST endpoint for execution
 app.post("/", async (req, res) => {
     try {
         const { code, input } = req.body;
@@ -30,27 +27,23 @@ app.post("/", async (req, res) => {
             return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
         }
 
-        // Run code execution in Piscina worker with a timeout
         const result = await pool.run({ code, input }, { timeout: 5000 });
         res.json(result);
 
     } catch (error) {
         console.error("Server Error:", error);
 
-        // Ensure full traceback is sent
         res.status(500).json({
             error: {
-                fullError: `Server Error: ${error.message}`,
-                traceback: error.stack || "No traceback available",
+                fullError: error.error?.fullError || "Unknown server error",
+                traceback: error.error?.traceback || "No traceback available",
             },
         });
     }
 });
 
-// Health check
 app.get("/health", (_, res) => res.json({ status: "Server is running" }));
 
-// Keep server active
 setInterval(() => http.get(`http://localhost:${port}/health`), 15 * 60 * 1000);
 
 app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
