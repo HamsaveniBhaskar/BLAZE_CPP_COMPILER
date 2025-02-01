@@ -14,10 +14,10 @@ app.use(express.json());
 // Optimize worker pool for high concurrency
 const pool = new Piscina({
     filename: path.resolve(__dirname, "compiler-worker.js"), 
-    maxThreads: Math.max(2, os.cpus().length), // Allow full CPU utilization
-    idleTimeout: 60000, // Keep workers alive longer to avoid frequent creation
-    minThreads: Math.max(2, os.cpus().length / 2), // Keep minimum active threads
-    concurrentTasksPerWorker: 2, // Allow workers to handle multiple tasks
+    maxThreads: Math.max(2, os.cpus().length),
+    idleTimeout: 60000,
+    minThreads: Math.max(2, os.cpus().length / 2),
+    concurrentTasksPerWorker: 2,
     errorHandler: (err) => console.error("Piscina Worker Error:", err)
 });
 
@@ -35,7 +35,14 @@ app.post("/", async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error("Piscina Error:", error);
-        res.status(500).json({ error: { fullError: `Worker error: ${error.message}` } });
+
+        let errorResponse = { error: { fullError: `Worker error: ${error.message}` } };
+
+        if (error.stack) {
+            errorResponse.error.traceback = error.stack; // Send traceback details
+        }
+
+        res.status(500).json(errorResponse);
     }
 });
 
