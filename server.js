@@ -36,7 +36,12 @@ app.post("/", async (req, res) => {
 
     } catch (error) {
         console.error("Server Error:", error);
-        res.status(500).json({ error: { fullError: `Server Error: ${error.message}`, traceback: error.stack } });
+        res.status(500).json({ 
+            error: { 
+                fullError: `Server Error: ${error.message}`, 
+                traceback: error.stack 
+            } 
+        });
     }
 });
 
