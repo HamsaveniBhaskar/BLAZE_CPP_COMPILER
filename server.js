@@ -36,11 +36,13 @@ app.post("/", async (req, res) => {
 
     } catch (error) {
         console.error("Server Error:", error);
-        res.status(500).json({ 
-            error: { 
-                fullError: `Server Error: ${error.message}`, 
-                traceback: error.stack 
-            } 
+
+        // Ensure full traceback is sent
+        res.status(500).json({
+            error: {
+                fullError: `Server Error: ${error.message}`,
+                traceback: error.stack || "No traceback available",
+            },
         });
     }
 });
