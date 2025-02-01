@@ -16,6 +16,26 @@ const cleanupFiles = async (...files) => {
     }
 };
 
+// Function to parse compilation errors and extract useful info
+const parseCompileError = (errorMsg) => {
+    const errorLines = errorMsg.split("\n");
+    const errors = [];
+
+    for (const line of errorLines) {
+        const match = line.match(/(.+?):(\d+):(\d+): (error|warning): (.+)/);
+        if (match) {
+            errors.push({
+                file: match[1],
+                line: parseInt(match[2], 10),
+                column: parseInt(match[3], 10),
+                message: match[5]
+            });
+        }
+    }
+
+    return errors.length > 0 ? errors : [{ message: errorMsg }];
+};
+
 // Exported function for Piscina
 module.exports = async function ({ code, input }) {
     if (!code) {
@@ -46,7 +66,13 @@ module.exports = async function ({ code, input }) {
             compileProcess.on("close", (code) => {
                 if (code !== 0) {
                     cleanupFiles(sourceFile, executable);
-                    return reject({ error: { fullError: `Compilation Error:\n${compileError}`, traceback: compileError } });
+                    return reject({
+                        error: {
+                            fullError: `=== COMPILATION ERROR ===\n${compileError}`,
+                            traceback: compileError,
+                            details: parseCompileError(compileError)
+                        }
+                    });
                 }
                 resolve();
             });
@@ -77,7 +103,12 @@ module.exports = async function ({ code, input }) {
                 cleanupFiles(sourceFile, executable);
 
                 if (code !== 0 || runtimeError) {
-                    return reject({ error: { fullError: `Runtime Error:\n${runtimeError}`, traceback: runtimeError } });
+                    return reject({
+                        error: {
+                            fullError: `=== RUNTIME ERROR ===\n${runtimeError}`,
+                            traceback: runtimeError
+                        }
+                    });
                 }
 
                 resolve({ output: output.trim() || "No output received!" });
@@ -85,12 +116,22 @@ module.exports = async function ({ code, input }) {
 
             runProcess.on("error", (err) => {
                 cleanupFiles(sourceFile, executable);
-                reject({ error: { fullError: `Execution Error: ${err.message}`, traceback: err.stack } });
+                reject({
+                    error: {
+                        fullError: `=== EXECUTION ERROR === ${err.message}`,
+                        traceback: err.stack
+                    }
+                });
             });
         });
 
     } catch (err) {
         cleanupFiles(sourceFile, executable);
-        throw new Error(`Worker crashed: ${err.message}\n${err.stack}`);
+        throw {
+            error: {
+                fullError: `=== WORKER CRASHED ===\n${err.message}`,
+                traceback: err.stack
+            }
+        };
     }
 };
