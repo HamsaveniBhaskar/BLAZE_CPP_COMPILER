@@ -16,7 +16,7 @@ function cleanupFiles(...files) {
 }
 
 (async () => {
-    const { code, input } = workerData;
+    const { code, input } = workerData || {};  // Default to an empty object if workerData is undefined
 
     if (!code) {
         return parentPort.postMessage({
@@ -73,3 +73,4 @@ function cleanupFiles(...files) {
         });
     }
 })();
+
