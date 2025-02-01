@@ -18,8 +18,8 @@ function cleanupFiles(files) {
     });
 }
 
-// Main worker function
-(async () => {
+// Function to compile and run code
+async function handleWorkerTask() {
     const { code, input } = workerData || {};  // Default to an empty object if workerData is undefined
 
     // Check if code is provided
@@ -76,4 +76,10 @@ function cleanupFiles(files) {
             error: { fullError: `Server Error: ${err.message}` }
         });
     }
-})();
+}
+
+// Listen for incoming messages and handle the task
+parentPort.on('message', () => {
+    handleWorkerTask();
+});
+
