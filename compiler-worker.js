@@ -1,112 +1,74 @@
-const { spawn } = require("child_process");
-const path = require("path");
+const { parentPort, workerData } = require("worker_threads");
+const { execSync } = require("child_process");
 const os = require("os");
-const fs = require("fs").promises;
+const fs = require("fs");
+const path = require("path");
 
-const tmpDir = path.join(os.tmpdir(), "blaze_code_temp");
-fs.mkdir(tmpDir, { recursive: true }).catch(() => {});
-
-// Utility function to clean up files
-const cleanupFiles = async (...files) => {
-    for (const file of files) {
+// Utility function to clean up temporary files
+function cleanupFiles(...files) {
+    files.forEach((file) => {
         try {
-            await fs.unlink(file);
-        } catch (err) {}
-    }
-};
+            fs.unlinkSync(file);
+        } catch (err) {
+            // Ignore errors (for files that may not exist)
+        }
+    });
+}
 
-// Function to parse compiler errors into readable format
-const parseCompileError = (errorMsg) => {
-    return errorMsg.split("\n").map(line => {
-        const match = line.match(/(.+?):(\d+):(\d+): (error|warning): (.+)/);
-        return match ? {
-            file: match[1],
-            line: parseInt(match[2], 10),
-            column: parseInt(match[3], 10),
-            type: match[4],
-            message: match[5]
-        } : null;
-    }).filter(Boolean);
-};
+// Worker logic
+(async () => {
+    const { code, input } = workerData;
 
-// Ensure Clang++ is installed
-const clangPath = "/usr/bin/clang++";
-
-module.exports = async function ({ code, input }) {
-    if (!code) throw new Error("Worker received invalid data: No code provided.");
-
+    // Paths for temporary C++ source and executable files
+    const tmpDir = os.tmpdir();
     const timestamp = Date.now();
     const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
-    const executable = path.join(tmpDir, `temp_${timestamp}.out`);
+    const executableFile = path.join(tmpDir, `temp_${timestamp}.out`);
 
     try {
-        await fs.writeFile(sourceFile, code);
+        // Write the C++ code to the source file
+        fs.writeFileSync(sourceFile, code);
 
-        // Compile the code
-        const compileProcess = spawn(clangPath, [sourceFile, "-o", executable, "-O2", "-std=c++17"]);
-        let compileError = "";
-
-        compileProcess.stderr.on("data", (data) => compileError += data.toString());
-
-        await new Promise((resolve, reject) => {
-            compileProcess.on("close", (code) => {
-                if (code !== 0) {
-                    cleanupFiles(sourceFile, executable);
-                    return reject({
-                        error: {
-                            fullError: `=== COMPILATION ERROR ===\n${compileError}`,
-                            details: parseCompileError(compileError)
-                        }
-                    });
-                }
-                resolve();
+        // Compile the C++ code using Clang++
+        const clangCommand = "/usr/bin/clang++";
+        try {
+            execSync(`${clangCommand} ${sourceFile} -o ${executableFile} -O2 -std=c++17`, {
+                encoding: "utf-8",
             });
+        } catch (compileError) {
+            // Clean up files before sending a compilation error message
+            cleanupFiles(sourceFile);
+            return parentPort.postMessage({
+                error: { fullError: `Compilation Error:\n${compileError.message}` },
+            });
+        }
+
+        // Run the compiled executable
+        let output = "";
+        try {
+            output = execSync(executableFile, {
+                input, // Pass input to the executable
+                encoding: "utf-8",
+            });
+        } catch (runtimeError) {
+            cleanupFiles(sourceFile, executableFile);
+            return parentPort.postMessage({
+                error: { fullError: `Runtime Error:\n${runtimeError.message}` },
+            });
+        }
+
+        // Clean up temporary files after execution
+        cleanupFiles(sourceFile, executableFile);
+
+        // Send the output back to the main thread
+        parentPort.postMessage({
+            output: output || "No output received!",
         });
-
-        // Execute compiled binary
-        return new Promise((resolve, reject) => {
-            const runProcess = spawn(executable, []);
-            let output = "", runtimeError = "";
-
-            runProcess.stdout.on("data", (data) => output += data.toString());
-            runProcess.stderr.on("data", (data) => runtimeError += data.toString());
-
-            if (input && input.trim()) {
-                runProcess.stdin.write(input + "\n");
-                runProcess.stdin.end();
-            }
-
-            runProcess.on("close", (code) => {
-                cleanupFiles(sourceFile, executable);
-                if (code !== 0 || runtimeError) {
-                    return reject({
-                        error: {
-                            fullError: `=== RUNTIME ERROR ===\n${runtimeError}`,
-                            traceback: runtimeError
-                        }
-                    });
-                }
-                resolve({ output: output.trim() || "No output received!" });
-            });
-
-            runProcess.on("error", (err) => {
-                cleanupFiles(sourceFile, executable);
-                reject({
-                    error: {
-                        fullError: `=== EXECUTION ERROR === ${err.message}`,
-                        traceback: err.stack
-                    }
-                });
-            });
-        });
-
     } catch (err) {
-        cleanupFiles(sourceFile, executable);
-        throw {
-            error: {
-                fullError: `=== WORKER CRASHED ===\n${err.message || "Unknown Error"}`,
-                traceback: err.stack || "No traceback available"
-            }
-        };
+        // Clean up files and send server error if anything goes wrong
+        cleanupFiles(sourceFile, executableFile);
+        return parentPort.postMessage({
+            error: { fullError: `Server Error:\n${err.message}` },
+        });
     }
-};
+})();
