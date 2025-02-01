@@ -15,10 +15,10 @@ const cleanupFiles = async (...files) => {
     }
 };
 
-// Function to parse compiler errors into readable format
+// Function to parse compiler errors into a readable format
 const parseCompileError = (errorMsg) => {
     return errorMsg.split("\n").map(line => {
-        const match = line.match(/(.+?):(\d+):(\d+): (error|warning): (.+)/);
+        const match = line.match(/([^:]+):(\d+):(\d+): (error|warning): (.+)/);
         return match ? {
             file: match[1],
             line: parseInt(match[2], 10),
