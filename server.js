@@ -8,51 +8,42 @@ const os = require("os");
 const app = express();
 const port = 3000;
 
-app.use(cors());
+// Allow all CORS origins
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// Optimize worker pool for high concurrency
+// Piscina worker pool
 const pool = new Piscina({
-    filename: path.resolve(__dirname, "compiler-worker.js"), 
+    filename: path.resolve(__dirname, "compiler-worker.js"),
     maxThreads: Math.max(2, os.cpus().length),
     idleTimeout: 60000,
     minThreads: Math.max(2, os.cpus().length / 2),
-    concurrentTasksPerWorker: 2,
-    errorHandler: (err) => console.error("Piscina Worker Error:", err)
+    concurrentTasksPerWorker: 2
 });
 
-// POST endpoint for compilation & execution
+// POST endpoint for execution
 app.post("/", async (req, res) => {
-    const { code, input } = req.body;
-
-    if (!code) {
-        return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
-    }
-
     try {
-        // Run code execution in Piscina worker with a 5-second timeout
-        const result = await pool.run({ code, input }, { timeout: 5000 });
-        res.json(result);
-    } catch (error) {
-        console.error("Piscina Error:", error);
+        const { code, input } = req.body;
 
-        if (error.error) {
-            return res.status(500).json(error.error);
+        if (!code) {
+            return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
         }
 
-        res.status(500).json({ 
-            error: { 
-                fullError: `Worker error: ${error.message}`, 
-                traceback: error.stack 
-            } 
-        });
+        // Run code execution in Piscina worker with a timeout
+        const result = await pool.run({ code, input }, { timeout: 5000 });
+        res.json(result);
+
+    } catch (error) {
+        console.error("Server Error:", error);
+        res.status(500).json({ error: { fullError: `Server Error: ${error.message}`, traceback: error.stack } });
     }
 });
 
 // Health check
 app.get("/health", (_, res) => res.json({ status: "Server is running" }));
 
-// Reduce self-ping frequency
+// Keep server active
 setInterval(() => http.get(`http://localhost:${port}/health`), 15 * 60 * 1000);
 
 app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
