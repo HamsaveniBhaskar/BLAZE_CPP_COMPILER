@@ -1,80 +1,112 @@
-const { parentPort, workerData } = require("worker_threads");
-const { execSync, execFileSync } = require("child_process");
-const os = require("os");
-const fs = require("fs");
+const { spawn } = require("child_process");
 const path = require("path");
+const os = require("os");
+const fs = require("fs").promises;
 
-// Utility function to clean up temporary files
-function cleanupFiles(files) {
-    files.forEach((file) => {
+const tmpDir = path.join(os.tmpdir(), "blaze_code_temp");
+fs.mkdir(tmpDir, { recursive: true }).catch(() => {});
+
+// Utility function to clean up files
+const cleanupFiles = async (...files) => {
+    for (const file of files) {
         try {
-            if (fs.existsSync(file)) {
-                fs.unlinkSync(file);
-            }
-        } catch (err) {
-            console.error(`Error cleaning up file: ${file}`);
-        }
-    });
-}
-
-// Function to compile and run code
-async function handleWorkerTask({ code, input }) {
-    if (!code) {
-        return parentPort.postMessage({
-            error: { fullError: "No code provided for compilation." }
-        });
+            await fs.unlink(file);
+        } catch (err) {}
     }
+};
 
-    // Set up temporary directory and file paths
-    const tmpDir = os.tmpdir();
-    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
-    const executableFile = path.join(tmpDir, `temp_${Date.now()}`);
+// Function to parse compiler errors into readable format
+const parseCompileError = (errorMsg) => {
+    return errorMsg.split("\n").map(line => {
+        const match = line.match(/(.+?):(\d+):(\d+): (error|warning): (.+)/);
+        return match ? {
+            file: match[1],
+            line: parseInt(match[2], 10),
+            column: parseInt(match[3], 10),
+            type: match[4],
+            message: match[5]
+        } : null;
+    }).filter(Boolean);
+};
+
+// Ensure Clang++ is installed
+const clangPath = "/usr/bin/clang++";
+
+module.exports = async function ({ code, input }) {
+    if (!code) throw new Error("Worker received invalid data: No code provided.");
+
+    const timestamp = Date.now();
+    const sourceFile = path.join(tmpDir, `temp_${timestamp}.cpp`);
+    const executable = path.join(tmpDir, `temp_${timestamp}.out`);
 
     try {
-        // Write the C++ code to a temporary source file
-        fs.writeFileSync(sourceFile, code);
+        await fs.writeFile(sourceFile, code);
 
-        // Compile the C++ code using clang++
-        try {
-            execSync(`clang++ ${sourceFile} -o ${executableFile}`, { stdio: 'pipe' });
-        } catch (compileError) {
-            cleanupFiles([sourceFile]);
-            return parentPort.postMessage({
-                error: { fullError: `Compilation Error:\n${compileError.stderr?.toString() || compileError.message}` }
+        // Compile the code
+        const compileProcess = spawn(clangPath, [sourceFile, "-o", executable, "-O2", "-std=c++17"]);
+        let compileError = "";
+
+        compileProcess.stderr.on("data", (data) => compileError += data.toString());
+
+        await new Promise((resolve, reject) => {
+            compileProcess.on("close", (code) => {
+                if (code !== 0) {
+                    cleanupFiles(sourceFile, executable);
+                    return reject({
+                        error: {
+                            fullError: `=== COMPILATION ERROR ===\n${compileError}`,
+                            details: parseCompileError(compileError)
+                        }
+                    });
+                }
+                resolve();
             });
-        }
-
-        // Run the compiled executable
-        let output = "";
-        try {
-            output = execFileSync(executableFile, {
-                input,
-                encoding: "utf-8",
-                timeout: 5000 // Prevent infinite loops
-            });
-        } catch (runtimeError) {
-            cleanupFiles([sourceFile, executableFile]);
-            return parentPort.postMessage({
-                error: { fullError: `Runtime Error:\n${runtimeError.stderr?.toString() || runtimeError.message}` }
-            });
-        }
-
-        // Clean up files after execution
-        cleanupFiles([sourceFile, executableFile]);
-
-        // Send the output back to the main thread
-        parentPort.postMessage({
-            output: output || "No output received!"
         });
+
+        // Execute compiled binary
+        return new Promise((resolve, reject) => {
+            const runProcess = spawn(executable, []);
+            let output = "", runtimeError = "";
+
+            runProcess.stdout.on("data", (data) => output += data.toString());
+            runProcess.stderr.on("data", (data) => runtimeError += data.toString());
+
+            if (input && input.trim()) {
+                runProcess.stdin.write(input + "\n");
+                runProcess.stdin.end();
+            }
+
+            runProcess.on("close", (code) => {
+                cleanupFiles(sourceFile, executable);
+                if (code !== 0 || runtimeError) {
+                    return reject({
+                        error: {
+                            fullError: `=== RUNTIME ERROR ===\n${runtimeError}`,
+                            traceback: runtimeError
+                        }
+                    });
+                }
+                resolve({ output: output.trim() || "No output received!" });
+            });
+
+            runProcess.on("error", (err) => {
+                cleanupFiles(sourceFile, executable);
+                reject({
+                    error: {
+                        fullError: `=== EXECUTION ERROR === ${err.message}`,
+                        traceback: err.stack
+                    }
+                });
+            });
+        });
+
     } catch (err) {
-        cleanupFiles([sourceFile, executableFile]);
-        parentPort.postMessage({
-            error: { fullError: `Server Error: ${err.message}` }
-        });
+        cleanupFiles(sourceFile, executable);
+        throw {
+            error: {
+                fullError: `=== WORKER CRASHED ===\n${err.message || "Unknown Error"}`,
+                traceback: err.stack || "No traceback available"
+            }
+        };
     }
-}
-
-// Export the handler function that will handle tasks sent by the main thread
-parentPort.on('message', (taskData) => {
-    handleWorkerTask(taskData);
-});
+};
