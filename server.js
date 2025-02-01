@@ -27,7 +27,6 @@ app.post("/", async (req, res) => {
             return res.status(400).json({ error: { fullError: "Error: No code provided!" } });
         }
 
-        // Ensure we are passing the correct data structure to the worker
         const result = await pool.run({ code, input }, { timeout: 5000 });
         res.json(result);
 
