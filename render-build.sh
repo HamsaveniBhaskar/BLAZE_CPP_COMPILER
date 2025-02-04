@@ -1,11 +1,14 @@
 #!/bin/bash
-# Install dependencies for Python and Node.js
+
+# Install dependencies for C++ and Node.js
 echo "Installing dependencies..."
+
+# Install Clang
 apt-get update
-apt-get install -y clang
+apt-get install -y clang build-essential
+
 # Install Node.js dependencies
 npm install
-npm install express cors http piscina
 
 echo "Dependencies installed successfully."
 
