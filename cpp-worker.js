@@ -18,16 +18,16 @@ function cleanupFiles(...files) {
 (async () => {
     const { code, input } = workerData;
     const tmpDir = os.tmpdir();
-    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.cpp`);
+    const sourceFile = path.join(tmpDir, `temp_${Date.now()}.c`);  // Change to `.c` since TCC has limited C++ support
     const outputFile = path.join(tmpDir, `temp_${Date.now()}`);
 
     try {
         // Write code to the source file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the C++ code using Clang
+        // Compile the C++ code using TCC
         try {
-            execSync(`clang++ -std=c++17 -o ${outputFile} ${sourceFile}`, { encoding: "utf-8", stdio: "pipe" });
+            execSync(`tcc -o ${outputFile} ${sourceFile}`, { encoding: "utf-8", stdio: "pipe" });
         } catch (error) {
             cleanupFiles(sourceFile, outputFile);
             return parentPort.postMessage({
