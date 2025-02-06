@@ -1,8 +1,8 @@
 # Use the official Node.js image as the base
 FROM node:16
 
-# Install Clang, necessary build tools, and other dependencies
-RUN apt-get update && apt-get install -y clang build-essential
+# Install Tiny C Compiler (TCC) and necessary dependencies
+RUN apt-get update && apt-get install -y tcc build-essential
 
 # Set the working directory inside the container
 WORKDIR /app
