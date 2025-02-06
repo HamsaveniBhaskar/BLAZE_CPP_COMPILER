@@ -25,9 +25,9 @@ function cleanupFiles(...files) {
         // Write code to the source file
         fs.writeFileSync(sourceFile, code);
 
-        // Compile the C++ code using Intel C++ Compiler (ICX)
+        // Compile the C++ code using Clang
         try {
-            execSync(`icpx -std=c++17 -o ${outputFile} ${sourceFile}`, { encoding: "utf-8", stdio: "pipe" });
+            execSync(`clang++ -std=c++17 -o ${outputFile} ${sourceFile}`, { encoding: "utf-8", stdio: "pipe" });
         } catch (error) {
             cleanupFiles(sourceFile, outputFile);
             return parentPort.postMessage({
