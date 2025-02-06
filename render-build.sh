@@ -3,9 +3,9 @@
 # Install dependencies for C++ and Node.js
 echo "Installing dependencies..."
 
-# Install Clang
+# Install TCC
 apt-get update
-apt-get install -y clang build-essential
+apt-get install -y tcc build-essential
 
 # Install Node.js dependencies
 npm install
