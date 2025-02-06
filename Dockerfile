@@ -1,8 +1,10 @@
 # Use the official Node.js image as the base
 FROM node:16
 
-# Install Tiny C Compiler (TCC) and necessary dependencies
-RUN apt-get update && apt-get install -y tcc build-essential
+# Install Intel C++ Compiler (ICX) and necessary build tools
+RUN apt-get update && apt-get install -y build-essential \
+    && wget -qO - https://apt.repos.intel.com/setup/intel-setup.sh | bash \
+    && apt-get install -y intel-oneapi-compiler-dpcpp-cpp
 
 # Set the working directory inside the container
 WORKDIR /app
