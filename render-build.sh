@@ -3,9 +3,10 @@
 # Install dependencies for C++ and Node.js
 echo "Installing dependencies..."
 
-# Install TCC
+# Install Intel C++ Compiler (ICX)
 apt-get update
-apt-get install -y tcc build-essential
+wget -qO - https://apt.repos.intel.com/setup/intel-setup.sh | bash
+apt-get install -y intel-oneapi-compiler-dpcpp-cpp build-essential
 
 # Install Node.js dependencies
 npm install
